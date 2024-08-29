@@ -1,10 +1,17 @@
-import {SafeAreaView, ScrollView, StyleSheet, View} from 'react-native';
+import {
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  View,
+  TouchableOpacity,
+} from 'react-native';
 import React, {useContext, useEffect, useRef, useState} from 'react';
 import {theme} from '../../assets';
 import {Banner1, Banner2, Gap} from '../../components';
 import {
   ActionSection,
   BottomBanner,
+  CardPoling,
   FullBanner,
   Headlines,
   LatestNews,
@@ -23,9 +30,7 @@ import {TokenContext} from '../../context/TokenContext';
 import {checkUserPreferences} from '../../utils/checkUserPreferences';
 import {AuthContext} from '../../context/AuthContext';
 import moment from 'moment';
-import {Card, Text, useTheme} from '@rneui/themed';
-import RNPoll, {IChoice} from 'react-native-poll';
-import RNAnimated from 'react-native-animated-component';
+
 const data = [0, 1, 2];
 const daerah = ['Manado', 'Minahasa Utara', 'Bitung', 'Tondano'];
 
@@ -174,13 +179,6 @@ const Home = ({navigation}) => {
     }
   }, [mpUser, token]);
 
-  const choices: Array<IChoice> = [
-    {id: 1, choice: 'Steven Kandouw Rita Tamuntuan', votes: 50},
-    {id: 2, choice: 'Elly Lasut Mika Paruntu', votes: 50},
-    {id: 3, choice: 'Yulius Lumbaa Victor Mailangkay', votes: 50},
-    {id: 4, choice: 'Calon Lain', votes: 50},
-  ];
-  const CARD_BACKGROUND_COLOR = '#003CB0';
   return (
     <SafeAreaView style={styles.safeAreaView}>
       <View style={styles.container}>
@@ -196,33 +194,11 @@ const Home = ({navigation}) => {
           {top && <TopBanner item={top} />}
 
           <Gap height={12} />
-          <Card
-            containerStyle={{
-              borderRadius: 10,
-              backgroundColor: CARD_BACKGROUND_COLOR,
-            }}>
-            <Card.Title style={styles.cardTitle}>
-              {' '}
-              Poling Calon Gubernur Sulawesi Utara 2024-2029
-            </Card.Title>
-            <RNPoll
-              totalVotes={100}
-              choices={choices}
-              fillBackgroundColor="#bfdcf6"
-              onChoicePress={(selectedChoice: IChoice) =>
-                console.log('SelectedChoice: ', selectedChoice)
-              }
-              style={styles.poll}
-            />
-          </Card>
+          <CardPoling />
           <Headlines data={headlines} />
-
           <Gap height={12} />
-
           {second && <SecondBanner item={second} />}
-
           <Gap height={12} />
-
           <NewsForYou
             canalModalRef={canalModalRef}
             item={forYou?.array.sort((a, b) =>
@@ -283,16 +259,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.white2,
   },
-  cardTitle: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  poll: {
-    backgroundColor: '#003CB0',
-    borderRadius: 10,
-    padding: 5,
-  },
+
   bodyContainer: {
     top: -20,
   },
