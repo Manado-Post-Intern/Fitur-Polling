@@ -1,21 +1,56 @@
+/* eslint-disable prettier/prettier */
 import {StyleSheet, View, TouchableOpacity} from 'react-native';
-import React, {useContext, useEffect, useRef, useState} from 'react';
-import {Card, Text, useTheme} from '@rneui/themed';
-import RNPoll, {IChoice} from 'react-native-poll';
-import RNAnimated from 'react-native-animated-component';
+import React, {useEffect, useState} from 'react';
+import {Card, Text} from '@rneui/themed';
+import RNPoll from 'react-native-poll';
+import database from '@react-native-firebase/database';
+import auth from '@react-native-firebase/auth';
+
 const CardPoling = () => {
-  const initialChoices = [
-    {id: 1, choice: 'Steven Kandouw', votes: 50},
-    {id: 2, choice: 'Elly Lasut', votes: 50},
-    {id: 3, choice: 'Yulius Lumbaa', votes: 50},
-    {id: 4, choice: 'Calon Lain', votes: 50},
-  ];
-  const [choices, setChoices] = useState(initialChoices);
+  const [choices, setChoices] = useState([]);
   const [selectedChoice, setSelectedChoice] = useState(null);
   const [hasVoted, setHasVoted] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const handleChoicePress = choice => {
+  const userId = auth().currentUser.uid;
+
+  // Fetch data from Firebase Realtime Database
+  useEffect(() => {
+    const fetchCandidatesAndUserVote = async () => {
+      // Fetch candidates
+      const snapshot = await database()
+        .ref('/polling/candidates')
+        .once('value');
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const formattedChoices = Object.keys(data).map((key, index) => ({
+          id: index + 1,
+          choice: key,
+          votes: data[key].votes,
+        }));
+        setChoices(formattedChoices);
+
+        // Fetch user's vote if they have already voted
+        const userVoteSnapshot = await database()
+          .ref(`/polling/votes/${userId}`)
+          .once('value');
+        if (userVoteSnapshot.exists()) {
+          const userVote = userVoteSnapshot.val();
+          const selected = formattedChoices.find(
+            choice => choice.choice === userVote.choice,
+          );
+          if (selected) {
+            setSelectedChoice(selected.id);
+            setHasVoted(true);
+          }
+        }
+      }
+    };
+
+    fetchCandidatesAndUserVote();
+  }, [refreshKey, userId]);
+
+  const handleChoicePress = async choice => {
     if (!hasVoted) {
       setSelectedChoice(choice.id);
       setHasVoted(true);
@@ -24,12 +59,43 @@ const CardPoling = () => {
           c.id === choice.id ? {...c, votes: c.votes + 1} : c,
         ),
       );
+
+      // Update the vote count in Firebase
+      await database()
+        .ref(`/polling/candidates/${choice.choice}`)
+        .update({votes: choice.votes + 1});
+
+      // Store the user's vote in the subcollection
+      await database()
+        .ref(`/polling/votes/${userId}`)
+        .set({userId, choice: choice.choice});
     }
   };
-  const handleCancelVote = () => {
+
+  const handleCancelVote = async () => {
+    if (selectedChoice !== null) {
+      const previousChoice = choices.find(c => c.id === selectedChoice);
+      if (previousChoice) {
+        // Decrease the vote count of the previous choice
+        await database()
+          .ref(`/polling/candidates/${previousChoice.choice}`)
+          .update({votes: previousChoice.votes - 1});
+
+        // Remove user's vote from the subcollection
+        await database().ref(`/polling/votes/${userId}`).remove();
+
+        // Update local state to reflect the vote reduction
+        setChoices(prevChoices =>
+          prevChoices.map(c =>
+            c.id === selectedChoice ? {...c, votes: c.votes - 1} : c,
+          ),
+        );
+      }
+    }
+
+    // Reset selection
     setSelectedChoice(null);
     setHasVoted(false);
-    setChoices(initialChoices);
     setRefreshKey(prevKey => prevKey + 1);
   };
 
@@ -51,7 +117,7 @@ const CardPoling = () => {
         onChoicePress={handleChoicePress}
         borderColor="#56A4EB"
         pollContainerStyle={styles.pollContainer}
-        selectedChoiceId={selectedChoice}
+        selectedChoiceId={selectedChoice}  // Highlight the selected candidate
         style={styles.poll}
       />
       {hasVoted && (
