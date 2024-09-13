@@ -60,10 +60,12 @@ const CardPoling = () => {
         ),
       );
 
-      // Update the vote count in Firebase
+      // Increment the vote count in the database using a transaction to ensure only one vote is added
       await database()
-        .ref(`/polling/candidates/${choice.choice}`)
-        .update({votes: choice.votes + 1});
+        .ref(`/polling/candidates/${choice.choice}/votes`)
+        .transaction(votes => {
+          return (votes || 0) + 1;
+        });
 
       // Store the user's vote in the subcollection
       await database()
@@ -76,10 +78,12 @@ const CardPoling = () => {
     if (selectedChoice !== null) {
       const previousChoice = choices.find(c => c.id === selectedChoice);
       if (previousChoice) {
-        // Decrease the vote count of the previous choice
+        // Decrease the vote count of the previous choice using a transaction
         await database()
-          .ref(`/polling/candidates/${previousChoice.choice}`)
-          .update({votes: previousChoice.votes - 1});
+          .ref(`/polling/candidates/${previousChoice.choice}/votes`)
+          .transaction(votes => {
+            return (votes || 0) - 1;
+          });
 
         // Remove user's vote from the subcollection
         await database().ref(`/polling/votes/${userId}`).remove();
@@ -117,7 +121,7 @@ const CardPoling = () => {
         onChoicePress={handleChoicePress}
         borderColor="#56A4EB"
         pollContainerStyle={styles.pollContainer}
-        selectedChoiceId={selectedChoice}  // Highlight the selected candidate
+        selectedChoiceId={selectedChoice} // Highlight the selected candidate
         style={styles.poll}
       />
       {hasVoted && (
