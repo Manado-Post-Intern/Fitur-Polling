@@ -1,10 +1,10 @@
-/* eslint-disable prettier/prettier */
 import {StyleSheet, View, TouchableOpacity} from 'react-native';
 import React, {useEffect, useState} from 'react';
 import {Card, Text} from '@rneui/themed';
 import RNPoll from 'react-native-poll';
 import database from '@react-native-firebase/database';
 import auth from '@react-native-firebase/auth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const CardPoling = () => {
   const [choices, setChoices] = useState([]);
@@ -31,13 +31,12 @@ const CardPoling = () => {
         setChoices(formattedChoices);
 
         // Fetch user's vote if they have already voted
-        const userVoteSnapshot = await database()
-          .ref(`/polling/votes/${userId}`)
-          .once('value');
-        if (userVoteSnapshot.exists()) {
-          const userVote = userVoteSnapshot.val();
+        const storedVote = await AsyncStorage.getItem(`@vote_${userId}`);
+        console.log('Stored vote from AsyncStorage:', storedVote);
+
+        if (storedVote) {
           const selected = formattedChoices.find(
-            choice => choice.choice === userVote.choice,
+            choice => choice.choice === storedVote,
           );
           if (selected) {
             setSelectedChoice(selected.id);
@@ -60,7 +59,7 @@ const CardPoling = () => {
         ),
       );
 
-      // Increment the vote count in the database using a transaction to ensure only one vote is added
+      // Increment the vote count in the database using a transaction
       await database()
         .ref(`/polling/candidates/${choice.choice}/votes`)
         .transaction(votes => {
@@ -71,6 +70,9 @@ const CardPoling = () => {
       await database()
         .ref(`/polling/votes/${userId}`)
         .set({userId, choice: choice.choice});
+
+      // Store the vote in AsyncStorage
+      await AsyncStorage.setItem(`@vote_${userId}`, choice.choice);
     }
   };
 
@@ -96,8 +98,7 @@ const CardPoling = () => {
         );
       }
     }
-
-    // Reset selection
+    await AsyncStorage.removeItem(`@vote_${userId}`);
     setSelectedChoice(null);
     setHasVoted(false);
     setRefreshKey(prevKey => prevKey + 1);
@@ -121,7 +122,7 @@ const CardPoling = () => {
         onChoicePress={handleChoicePress}
         borderColor="#56A4EB"
         pollContainerStyle={styles.pollContainer}
-        selectedChoiceId={selectedChoice} // Highlight the selected candidate
+        selectedChoiceId={selectedChoice} // Ensure this is set correctly
         style={styles.poll}
       />
       {hasVoted && (
