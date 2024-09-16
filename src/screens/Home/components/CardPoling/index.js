@@ -11,10 +11,10 @@ const CardPoling = () => {
   const [pollData, setPollData] = useState({
     totalVotes: 0,
     options: [
-      {text: 'Drs. Steven Kandouw ', votes: 0},
-      {text: 'Dr. Elly Engelbert Lasut, M.E', votes: 0},
-      {text: 'Mayjen TNI (Purn.) Yulius Lumbaa', votes: 0},
-      {text: 'Calon Lain', votes: 0},
+      {text: 'Drs. Steven Kandouw ', votes: 2},
+      {text: 'Dr. Elly Engelbert Lasut, M.E', votes: 3},
+      {text: 'Mayjen TNI (Purn.) Yulius Lumbaa', votes: 1},
+      {text: 'Calon Lain', votes: 2},
     ],
     hasVoted: false,
     selectedOption: null,
@@ -64,9 +64,9 @@ const CardPoling = () => {
 
   const calculatePercentage = votes => {
     if (pollData.totalVotes === 0) {
-      return '0%';
+      return 0;
     }
-    return `${((votes / pollData.totalVotes) * 100).toFixed(1)}%`;
+    return (votes / pollData.totalVotes) * 100;
   };
 
   const handleChangeVote = () => {
@@ -82,6 +82,7 @@ const CardPoling = () => {
             if (pollData.selectedOption !== null) {
               newOptions[pollData.selectedOption].votes -= 1;
             }
+
             setPollData({
               ...pollData,
               options: newOptions,
@@ -89,6 +90,7 @@ const CardPoling = () => {
               selectedOption: null,
               totalVotes: pollData.totalVotes - 1,
             });
+
             try {
               await AsyncStorage.removeItem(POLL_STORAGE_KEY);
               console.log('Polling data cleared from storage');
@@ -102,27 +104,33 @@ const CardPoling = () => {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={styles.cardContainer}>
       {pollData.options.map((option, index) => (
         <TouchableOpacity
           key={index}
           onPress={() => handleVote(index)}
           disabled={pollData.hasVoted}
-          style={styles.optionContainer}>
-          <Text style={styles.optionText}>{option.text}</Text>
-          {pollData.hasVoted && (
-            <View style={styles.resultContainer}>
-              <LinearGradient
-                colors={['#4c669f', '#3b5998', '#192f6a']}
-                style={[
-                  styles.resultBar,
-                  {width: calculatePercentage(option.votes)},
-                ]}
-              />
+          style={[
+            styles.optionContainer,
+            pollData.selectedOption === index && pollData.hasVoted
+              ? styles.selectedOptionContainer
+              : null,
+          ]}>
+          <View style={styles.optionContent}>
+            <Text style={styles.optionText}>{option.text}</Text>
+            {pollData.hasVoted && (
               <Text style={styles.percentageText}>
-                {calculatePercentage(option.votes)}
+                {`${calculatePercentage(option.votes).toFixed(1)}%`}
               </Text>
-            </View>
+            )}
+          </View>
+          {pollData.hasVoted && (
+            <View
+              style={[
+                styles.resultBar,
+                {width: `${calculatePercentage(option.votes)}%`},
+              ]}
+            />
           )}
         </TouchableOpacity>
       ))}
@@ -141,46 +149,57 @@ const CardPoling = () => {
     </View>
   );
 };
-
 export default CardPoling;
-
 const styles = StyleSheet.create({
-  container: {
-    padding: 20,
+  cardContainer: {
+    borderRadius: 16,
+    borderColor: '#C1D8DD',
+    borderWidth: 1,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+    marginHorizontal: 27,
+    paddingVertical: 8,
+    paddingHorizontal: 24,
+    overflow: 'hidden',
   },
   optionContainer: {
     marginVertical: 10,
-    padding: 15,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 10,
-  },
-  optionText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  resultContainer: {
-    marginTop: 10,
-    height: 20,
-    backgroundColor: '#ddd',
+    backgroundColor: '#9FC0DE',
     borderRadius: 10,
     overflow: 'hidden',
-    position: 'relative',
+  },
+  selectedOptionContainer: {
+    borderColor: '#fff',
+    borderWidth: 2,
+  },
+  optionContent: {
+    padding: 25,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  optionText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#fff',
   },
   resultBar: {
     position: 'absolute',
     top: 0,
     bottom: 0,
     left: 0,
+    backgroundColor: '#5a82a6',
+    zIndex: 1,
   },
   percentageText: {
-    position: 'absolute',
-    right: 10,
-    top: 0,
-    bottom: 0,
     fontSize: 14,
     color: '#fff',
     fontWeight: 'bold',
-    textAlignVertical: 'center',
   },
   buttonContainer: {
     marginTop: 20,
