@@ -20,7 +20,6 @@ const CardPoling = () => {
     selectedOption: null,
   });
 
-  // Load saved poll data when component mounts
   useEffect(() => {
     const loadPollData = async () => {
       try {
@@ -35,7 +34,6 @@ const CardPoling = () => {
     loadPollData();
   }, []);
 
-  // Save poll data every time it's updated
   useEffect(() => {
     const savePollData = async () => {
       try {
@@ -80,13 +78,10 @@ const CardPoling = () => {
         {
           text: 'Ya',
           onPress: async () => {
-            // Kurangi vote dari pilihan yang sebelumnya dipilih
             const newOptions = [...pollData.options];
             if (pollData.selectedOption !== null) {
               newOptions[pollData.selectedOption].votes -= 1;
             }
-
-            // Reset state polling
             setPollData({
               ...pollData,
               options: newOptions,
@@ -94,8 +89,6 @@ const CardPoling = () => {
               selectedOption: null,
               totalVotes: pollData.totalVotes - 1,
             });
-
-            // Hapus data polling dari AsyncStorage
             try {
               await AsyncStorage.removeItem(POLL_STORAGE_KEY);
               console.log('Polling data cleared from storage');
