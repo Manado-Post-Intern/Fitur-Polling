@@ -1,177 +1,299 @@
-import {StyleSheet, View, TouchableOpacity} from 'react-native';
-import React, {useEffect, useState} from 'react';
-import {Card, Text} from '@rneui/themed';
-import RNPoll from 'react-native-poll';
-import database from '@react-native-firebase/database';
-import auth from '@react-native-firebase/auth';
+/* eslint-disable prettier/prettier */
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import auth from '@react-native-firebase/auth';
+import database from '@react-native-firebase/database';
+
+const POLL_STORAGE_KEY = '@polling_result';
 
 const CardPoling = () => {
-  const [choices, setChoices] = useState([]);
-  const [selectedChoice, setSelectedChoice] = useState(null);
-  const [hasVoted, setHasVoted] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [pollData, setPollData] = useState({
+    totalVotes: 0,
+    options: [],
+    hasVoted: false,
+    selectedOption: null,
+  });
+  const [userId, setUserId] = useState(null);
 
-  const userId = auth().currentUser.uid;
-
-  // Fetch data from Firebase Realtime Database
   useEffect(() => {
-    const fetchCandidatesAndUserVote = async () => {
-      // Fetch candidates
-      const snapshot = await database()
-        .ref('/polling/candidates')
-        .once('value');
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        const formattedChoices = Object.keys(data).map((key, index) => ({
-          id: index + 1,
-          choice: key,
-          votes: data[key].votes,
-        }));
-        setChoices(formattedChoices);
-
-        // Fetch user's vote if they have already voted
-        const storedVote = await AsyncStorage.getItem(`@vote_${userId}`);
-        console.log('Stored vote from AsyncStorage:', storedVote);
-
-        if (storedVote) {
-          const selected = formattedChoices.find(
-            choice => choice.choice === storedVote,
-          );
-          if (selected) {
-            setSelectedChoice(selected.id);
-            setHasVoted(true);
-          }
+    const loadCandidates = async () => {
+      try {
+        // Authenticate and get the current user's ID
+        const currentUser = auth().currentUser;
+        if (currentUser) {
+          setUserId(currentUser.uid);
         }
+
+        // Load candidates from Firebase
+        const snapshot = await database().ref('polling/candidates').once('value');
+        const candidates = snapshot.val();
+
+        const options = Object.keys(candidates).map(candidate => ({
+          text: candidate,
+          votes: candidates[candidate].votes,
+        }));
+
+        const totalVotes = options.reduce((sum, option) => sum + option.votes, 0);
+
+        setPollData(prevState => ({
+          ...prevState,
+          options,
+          totalVotes,
+        }));
+
+        // Check if the user has already voted by checking Firebase
+        const userVoteSnapshot = await database().ref(`polling/users/${currentUser.uid}`).once('value');
+        if (userVoteSnapshot.exists()) {
+          const userVoteData = userVoteSnapshot.val();
+          const selectedOption = options.findIndex(option => option.text === userVoteData.selectedCandidate);
+
+          setPollData(prevState => ({
+            ...prevState,
+            hasVoted: true,
+            selectedOption,
+          }));
+        }
+      } catch (error) {
+        console.error('Error loading candidates or user data:', error);
       }
     };
 
-    fetchCandidatesAndUserVote();
-  }, [refreshKey, userId]);
+    loadCandidates();
+  }, []);
 
-  const handleChoicePress = async choice => {
-    if (!hasVoted) {
-      setSelectedChoice(choice.id);
-      setHasVoted(true);
-      setChoices(prevChoices =>
-        prevChoices.map(c =>
-          c.id === choice.id ? {...c, votes: c.votes + 1} : c,
-        ),
-      );
+  useEffect(() => {
+    const savePollData = async () => {
+      try {
+        await AsyncStorage.setItem(POLL_STORAGE_KEY, JSON.stringify({
+          hasVoted: pollData.hasVoted,
+          selectedOption: pollData.selectedOption,
+        }));
 
-      // Increment the vote count in the database using a transaction
-      await database()
-        .ref(`/polling/candidates/${choice.choice}/votes`)
-        .transaction(votes => {
-          return (votes || 0) + 1;
-        });
+        if (pollData.hasVoted && pollData.selectedOption !== null) {
+          const selectedCandidate = pollData.options[pollData.selectedOption].text;
 
-      // Store the user's vote in the subcollection
-      await database()
-        .ref(`/polling/votes/${userId}`)
-        .set({userId, choice: choice.choice});
+          // Save the user vote to Firebase
+          await database().ref(`polling/candidates/${selectedCandidate}/votes`).set(
+            pollData.options[pollData.selectedOption].votes
+          );
 
-      // Store the vote in AsyncStorage
-      await AsyncStorage.setItem(`@vote_${userId}`, choice.choice);
+          // Save user voting record with userId and selected candidate
+          await database().ref(`polling/users/${userId}`).set({
+            selectedCandidate,
+          });
+        }
+      } catch (error) {
+        console.error('Error saving poll data:', error);
+      }
+    };
+
+    savePollData();
+  }, [pollData, userId]);
+
+  const handleVote = index => {
+    if (!pollData.hasVoted && userId) {
+      const newOptions = [...pollData.options];
+      newOptions[index].votes += 1;
+
+      setPollData({
+        ...pollData,
+        options: newOptions,
+        totalVotes: pollData.totalVotes + 1,
+        hasVoted: true,
+        selectedOption: index,
+      });
     }
   };
 
-  const handleCancelVote = async () => {
-    if (selectedChoice !== null) {
-      const previousChoice = choices.find(c => c.id === selectedChoice);
-      if (previousChoice) {
-        // Decrease the vote count of the previous choice using a transaction
-        await database()
-          .ref(`/polling/candidates/${previousChoice.choice}/votes`)
-          .transaction(votes => {
-            return (votes || 0) - 1;
-          });
+  const handleChangeVote = () => {
+    Alert.alert(
+      'Ganti Pilihan',
+      'Apakah Anda yakin ingin mengganti pilihan? Ini akan menghapus hasil polling Anda.',
+      [
+        { text: 'Batal', style: 'cancel' },
+        {
+          text: 'Ya',
+          onPress: async () => {
+            const newOptions = [...pollData.options];
+            const prevSelectedOption = pollData.selectedOption;
 
-        // Remove user's vote from the subcollection
-        await database().ref(`/polling/votes/${userId}`).remove();
+            if (prevSelectedOption !== null) {
+              newOptions[prevSelectedOption].votes -= 1;
 
-        // Update local state to reflect the vote reduction
-        setChoices(prevChoices =>
-          prevChoices.map(c =>
-            c.id === selectedChoice ? {...c, votes: c.votes - 1} : c,
-          ),
-        );
-      }
+              const previousCandidate = newOptions[prevSelectedOption].text;
+
+              // Update votes in Firebase
+              await database().ref(`polling/candidates/${previousCandidate}/votes`).set(
+                newOptions[prevSelectedOption].votes
+              );
+
+              // Remove the user vote record
+              await database().ref(`polling/users/${userId}`).remove();
+            }
+
+            setPollData({
+              ...pollData,
+              options: newOptions,
+              hasVoted: false,
+              selectedOption: null,
+              totalVotes: pollData.totalVotes - 1,
+            });
+
+            await AsyncStorage.removeItem(POLL_STORAGE_KEY);
+          },
+        },
+      ]
+    );
+  };
+
+  const calculatePercentage = votes => {
+    if (pollData.totalVotes === 0) {
+      return 0;
     }
-    await AsyncStorage.removeItem(`@vote_${userId}`);
-    setSelectedChoice(null);
-    setHasVoted(false);
-    setRefreshKey(prevKey => prevKey + 1);
+    return (votes / pollData.totalVotes) * 100;
   };
 
   return (
-    <Card
-      key={refreshKey}
-      containerStyle={{
-        borderRadius: 10,
-        backgroundColor: '#ffff',
-      }}>
-      <Card.Title style={styles.cardTitle}>
-        Poling Calon Gubernur {'\n'}Sulawesi Utara 2024-2029
-      </Card.Title>
-      <RNPoll
-        totalVotes={choices.reduce((total, choice) => total + choice.votes, 0)}
-        choices={choices}
-        choiceTextStyle={styles.choiceTextStyle}
-        fillBackgroundColor="rgba(108, 184, 249, 1)"
-        onChoicePress={handleChoicePress}
-        borderColor="#56A4EB"
-        pollContainerStyle={styles.pollContainer}
-        selectedChoiceId={selectedChoice} // Ensure this is set correctly
-        style={styles.poll}
-      />
-      {hasVoted && (
+    <View style={styles.cardContainer}>
+      <View>
+        <Text style={styles.title}>Polling</Text>
+        <Text style={styles.subtitle}>
+          Siapakah calon Gubernur Sulawesi Utara periode 2024-2029
+        </Text>
+      </View>
+      {pollData.options.map((option, index) => (
+        <TouchableOpacity
+          key={index}
+          onPress={() => handleVote(index)}
+          disabled={pollData.hasVoted}
+          style={[
+            styles.optionContainer,
+            pollData.selectedOption === index && pollData.hasVoted
+              ? styles.selectedOptionContainer
+              : null,
+          ]}
+        >
+          <View style={styles.optionContent}>
+            <Text style={styles.optionText}>{option.text}</Text>
+            {pollData.hasVoted && (
+              <Text style={styles.percentageText}>
+                {`${calculatePercentage(option.votes).toFixed(1)}%`}
+              </Text>
+            )}
+          </View>
+          {pollData.hasVoted && (
+            <View
+              style={[
+                styles.resultBar,
+                { width: `${calculatePercentage(option.votes)}%` },
+              ]}
+            />
+          )}
+        </TouchableOpacity>
+      ))}
+      {pollData.hasVoted && (
         <View style={styles.buttonContainer}>
           <TouchableOpacity
-            onPress={handleCancelVote}
-            style={styles.cancelButton}>
-            <Text style={styles.cancelButtonText}>Ganti Pilihan</Text>
+            onPress={handleChangeVote}
+            style={styles.changeButton}
+          >
+            <Text style={styles.changeButtonText}>Ganti Pilihan</Text>
           </TouchableOpacity>
         </View>
       )}
-    </Card>
+    </View>
   );
 };
 
 export default CardPoling;
 
 const styles = StyleSheet.create({
-  cardTitle: {
-    color: '#6496c2',
+  cardContainer: {
+    borderRadius: 16,
+    borderColor: '#C1D8DD',
+    borderWidth: 1,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+    marginHorizontal: 27,
+    paddingVertical: 8,
+    paddingHorizontal: 24,
+    overflow: 'hidden',
+  },
+  title: {
     fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'left',
+    fontWeight: '700',
+    color: '#6496C2',
   },
-  choiceTextStyle: {
-    color: '#373737',
+  subtitle: {
+    fontSize: 16,
   },
-  pollContainer: {
+  optionContainer: {
+    marginVertical: 4,
+    backgroundColor: '#9FC0DE',
     borderRadius: 10,
-    padding: 5,
-    marginTop: -15,
+    overflow: 'hidden',
   },
-  poll: {
-    borderRadius: 10,
+  selectedOptionContainer: {
+    borderColor: '#fff',
+    borderWidth: 2,
+  },
+  optionContent: {
     padding: 15,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  optionText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#fff',
+    textAlign: 'right',
+  },
+  resultBar: {
+    position: 'absolute',
+    top: 5,
+    bottom: 5,
+    left: 5,
+    backgroundColor: '#5a82a6',
+    zIndex: 1,
+    borderRadius: 8,
+  },
+  percentageText: {
+    fontSize: 14,
+    color: '#fff',
+    fontWeight: 'bold',
   },
   buttonContainer: {
     marginTop: 5,
     alignItems: 'center',
   },
-  cancelButton: {
+  changeButton: {
+    marginTop: 15,
     backgroundColor: '#054783',
-    paddingVertical: 12,
-    paddingHorizontal: 115,
-    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: '35%',
+    borderRadius: 10,
   },
-  cancelButtonText: {
-    color: '#ffffff',
+  changeButtonText: {
+    color: '#fff',
     fontWeight: 'bold',
-    fontSize: 16,
+  },
+  resetButton: {
+    marginTop: 20,
+    backgroundColor: '#ff4500',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    alignSelf: 'center',
+  },
+  resetButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
   },
 });
