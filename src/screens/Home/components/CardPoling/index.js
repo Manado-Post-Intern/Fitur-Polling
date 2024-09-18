@@ -27,7 +27,7 @@ const CardPoling = () => {
 
   const fetchImageURL = async imageName => {
     try {
-      const path = `Polling/${imageName}`;
+      const path = `images/polling/${imageName}`;
       console.log(`Fetching image from path: ${path}`);
       const url = await storage().ref(path).getDownloadURL();
       console.log(`Successfully fetched image URL for: ${imageName}`);
@@ -162,8 +162,6 @@ const CardPoling = () => {
     if (pollData.totalVotes === 0) {
       return 0;
     }
-
-    // Hitung persentase, namun batasi maksimum 98% agar tidak mentok ke kanan
     const percentage = (votes / pollData.totalVotes) * 100;
     return percentage >= 100 ? 98 : percentage;
   };
@@ -285,10 +283,10 @@ const styles = StyleSheet.create({
   },
   resultBar: {
     position: 'absolute',
-    top: 4,
-    bottom: 4,
-    left: 4,
-    backgroundColor: 'rgba(108, 183, 248, 0.5)',
+    top: 3,
+    bottom: 3,
+    left: 3,
+    backgroundColor: 'rgba(0, 61, 176, 0.5)',
     zIndex: 2,
     borderRadius: 8,
     borderColor: '#fff',
