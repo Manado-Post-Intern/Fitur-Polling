@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useCallback} from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   Image,
   Alert,
 } from 'react-native';
-import {theme} from '../../../../assets';
+import {IcGanti, theme} from '../../../../assets';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import auth from '@react-native-firebase/auth';
 import database from '@react-native-firebase/database';
@@ -25,12 +25,9 @@ const CardPoling = () => {
     selectedOption: null,
   });
   const [userId, setUserId] = useState(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [title, setTitle] = useState('');
-  const titleRef = database().ref('polling/title');
-  titleRef.on('value', snapshot => {
-    const fetchedTitle = snapshot.val();
-    setTitle(fetchedTitle);
-  });
+
   const fetchImageURL = async imageName => {
     try {
       const path = `images/polling/${imageName}`;
@@ -44,95 +41,123 @@ const CardPoling = () => {
     }
   };
 
-  useEffect(() => {
-    const loadCandidates = async () => {
-      try {
-        const currentUser = auth().currentUser;
-        if (currentUser) {
-          setUserId(currentUser.uid);
+  const loadCandidates = useCallback(async () => {
+    try {
+      const currentUser = auth().currentUser;
+      if (currentUser) {
+        setUserId(currentUser.uid);
+      }
+
+      // Fetch title
+      const titleSnapshot = await database().ref('polling/title').once('value');
+      setTitle(titleSnapshot.val());
+
+      // Fetch candidates
+      const candidateSnapshot = await database()
+        .ref('polling/candidates')
+        .once('value');
+      const candidates = candidateSnapshot.val();
+
+      const options = await Promise.all(
+        Object.keys(candidates).map(async candidate => {
+          const imageName =
+            candidates[candidate].imageName || `${candidate}.png`;
+          const imageUrl = await fetchImageURL(imageName);
+
+          return {
+            text: candidate,
+            votes: candidates[candidate].votes,
+            image: imageUrl,
+          };
+        }),
+      );
+
+      options.sort((a, b) => {
+        if (a.text === 'Lainnya') {
+          return 1;
         }
+        if (b.text === 'Lainnya') {
+          return -1;
+        }
+        return a.text.localeCompare(b.text);
+      });
 
-        // Mendapatkan data polling kandidat secara realtime
-        const candidateRef = database().ref('polling/candidates');
-        candidateRef.on('value', async snapshot => {
-          const candidates = snapshot.val();
+      const totalVotes = options.reduce((sum, option) => sum + option.votes, 0);
 
-          const options = await Promise.all(
-            Object.keys(candidates).map(async candidate => {
-              const imageName =
-                candidates[candidate].imageName || `${candidate}.png`;
-              const imageUrl = await fetchImageURL(imageName);
+      setPollData(prevState => ({
+        ...prevState,
+        options,
+        totalVotes,
+      }));
 
-              return {
-                text: candidate,
-                votes: candidates[candidate].votes,
-                image: imageUrl,
-              };
-            }),
-          );
-
-          const totalVotes = options.reduce(
-            (sum, option) => sum + option.votes,
-            0,
+      // Check user vote
+      if (currentUser) {
+        const userVoteSnapshot = await database()
+          .ref(`polling/users/${currentUser.uid}`)
+          .once('value');
+        if (userVoteSnapshot.exists()) {
+          const userVoteData = userVoteSnapshot.val();
+          const selectedOption = options.findIndex(
+            option => option.text === userVoteData.selectedCandidate,
           );
 
           setPollData(prevState => ({
             ...prevState,
-            options,
-            totalVotes,
+            hasVoted: true,
+            selectedOption,
           }));
-        });
-
-        // Mengecek data vote pengguna secara realtime
-        const userVoteRef = database().ref(`polling/users/${currentUser.uid}`);
-        userVoteRef.on('value', snapshot => {
-          if (snapshot.exists()) {
-            const userVoteData = snapshot.val();
-            const selectedOption = pollData.options.findIndex(
-              option => option.text === userVoteData.selectedCandidate,
-            );
-
-            setPollData(prevState => ({
-              ...prevState,
-              hasVoted: true,
-              selectedOption,
-            }));
-          }
-        });
-      } catch (error) {
-        console.error('Error loading candidates or user data:', error);
+        }
       }
-    };
-
-    loadCandidates();
+    } catch (error) {
+      console.error('Error loading candidates or user data:', error);
+    }
   }, []);
+
+  useEffect(() => {
+    loadCandidates();
+
+    const candidateRef = database().ref('polling/candidates');
+    const userVoteRef = database().ref(`polling/users/${userId}`);
+
+    const candidateListener = candidateRef.on('value', loadCandidates);
+    const userVoteListener = userVoteRef.on('value', loadCandidates);
+
+    return () => {
+      candidateRef.off('value', candidateListener);
+      userVoteRef.off('value', userVoteListener);
+    };
+  }, [loadCandidates, userId]);
 
   const handleVote = async index => {
     if (!pollData.hasVoted && userId) {
-      const userVoteSnapshot = await database()
-        .ref(`polling/users/${userId}`)
-        .once('value');
+      try {
+        const userVoteRef = database().ref(`polling/users/${userId}`);
+        const candidateRef = database().ref(
+          `polling/candidates/${pollData.options[index].text}`,
+        );
 
-      if (!userVoteSnapshot.exists()) {
-        const newOptions = [...pollData.options];
-        newOptions[index].votes += 1;
+        await database().runTransaction(async transaction => {
+          const userVoteSnapshot = await transaction.get(userVoteRef);
+          const candidateSnapshot = await transaction.get(candidateRef);
 
-        await database()
-          .ref(`polling/candidates/${newOptions[index].text}/votes`)
-          .set(newOptions[index].votes);
-        await database().ref(`polling/users/${userId}`).set({
-          selectedCandidate: newOptions[index].text,
+          if (userVoteSnapshot.exists()) {
+            return;
+          }
+
+          const currentVotes = candidateSnapshot.child('votes').val() || 0;
+          transaction.update(candidateRef, {votes: currentVotes + 1});
+          transaction.set(userVoteRef, {
+            selectedCandidate: pollData.options[index].text,
+          });
         });
-        setPollData({
-          ...pollData,
-          options: newOptions,
-          totalVotes: pollData.totalVotes + 1,
-          hasVoted: true,
-          selectedOption: index,
-        });
-      } else {
-        Alert.alert('Anda sudah memberikan suara sebelumnya.');
+
+        await loadCandidates();
+      } catch (error) {
+        console.error('Error while voting:', error);
+        Alert.alert('Error', 'Failed to submit your vote. Please try again.');
       }
+    } else if (pollData.hasVoted) {
+      Alert.alert('Anda sudah memberikan suara sebelumnya.');
     }
   };
 
@@ -145,30 +170,36 @@ const CardPoling = () => {
         {
           text: 'Ya',
           onPress: async () => {
-            const newOptions = [...pollData.options];
-            const prevSelectedOption = pollData.selectedOption;
+            try {
+              const prevSelectedOption = pollData.selectedOption;
+              if (prevSelectedOption !== null) {
+                const previousCandidate =
+                  pollData.options[prevSelectedOption].text;
+                const candidateRef = database().ref(
+                  `polling/candidates/${previousCandidate}`,
+                );
+                const userVoteRef = database().ref(`polling/users/${userId}`);
 
-            if (prevSelectedOption !== null) {
-              newOptions[prevSelectedOption].votes -= 1;
+                await database().runTransaction(async transaction => {
+                  const candidateSnapshot = await transaction.get(candidateRef);
+                  const currentVotes =
+                    candidateSnapshot.child('votes').val() || 0;
+                  transaction.update(candidateRef, {
+                    votes: Math.max(0, currentVotes - 1),
+                  });
+                  transaction.remove(userVoteRef);
+                });
 
-              const previousCandidate = newOptions[prevSelectedOption].text;
-
-              await database()
-                .ref(`polling/candidates/${previousCandidate}/votes`)
-                .set(newOptions[prevSelectedOption].votes);
-
-              await database().ref(`polling/users/${userId}`).remove();
+                await loadCandidates();
+                await AsyncStorage.removeItem(POLL_STORAGE_KEY);
+              }
+            } catch (error) {
+              console.error('Error while changing vote:', error);
+              Alert.alert(
+                'Error',
+                'Failed to change your vote. Please try again.',
+              );
             }
-
-            setPollData({
-              ...pollData,
-              options: newOptions,
-              hasVoted: false,
-              selectedOption: null,
-              totalVotes: pollData.totalVotes - 1,
-            });
-
-            await AsyncStorage.removeItem(POLL_STORAGE_KEY);
           },
         },
       ],
@@ -183,6 +214,11 @@ const CardPoling = () => {
     return percentage >= 100 ? 98 : percentage;
   };
 
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await loadCandidates();
+    setIsRefreshing(false);
+  };
   return (
     <View style={styles.cardContainer}>
       <Gap height={8} />
@@ -190,7 +226,7 @@ const CardPoling = () => {
       <Gap height={16} />
       {pollData.options.map((option, index) => (
         <TouchableOpacity
-          key={index}
+          key={option.text}
           onPress={() => handleVote(index)}
           disabled={pollData.hasVoted}
           style={[
@@ -228,11 +264,20 @@ const CardPoling = () => {
           <TouchableOpacity
             onPress={handleChangeVote}
             style={styles.changeButton}>
+            <IcGanti />
             <Text style={styles.changeButtonText}>Ganti Pilihan</Text>
           </TouchableOpacity>
           <Gap height={24} />
         </View>
       )}
+      <TouchableOpacity
+        onPress={handleRefresh}
+        style={styles.refreshButton}
+        disabled={isRefreshing}>
+        <Text style={styles.refreshButtonText}>
+          {isRefreshing ? 'Memperbarui...' : 'Perbarui Data'}
+        </Text>
+      </TouchableOpacity>
       <Gap height={8} />
     </View>
   );
@@ -316,16 +361,31 @@ const styles = StyleSheet.create({
   },
   changeButton: {
     marginTop: 15,
-    backgroundColor: '#92CBFF',
+
     paddingVertical: '3%',
     paddingHorizontal: '15%',
     borderRadius: 10,
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
   },
   changeButtonText: {
-    color: '#344ab9',
+    backgroundColor: '#92CBFF',
     fontWeight: '500',
     fontSize: 16,
+    paddingHorizontal: '5%',
     fontFamily: theme.fonts.inter.semiBold,
+  },
+  refreshButton: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 5,
+  },
+  refreshButtonText: {
+    color: '#344ab9',
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
 });
