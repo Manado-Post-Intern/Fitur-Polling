@@ -1,106 +1,328 @@
-import {StyleSheet, View, TouchableOpacity} from 'react-native';
-import React, {useContext, useEffect, useRef, useState} from 'react';
-import {Card, Text, useTheme} from '@rneui/themed';
-import RNPoll, {IChoice} from 'react-native-poll';
-import RNAnimated from 'react-native-animated-component';
-const CardPoling = () => {
-  const initialChoices = [
-    {id: 1, choice: 'Steven Kandouw', votes: 50},
-    {id: 2, choice: 'Elly Lasut', votes: 50},
-    {id: 3, choice: 'Yulius Lumbaa', votes: 50},
-    {id: 4, choice: 'Calon Lain', votes: 50},
-  ];
-  const [choices, setChoices] = useState(initialChoices);
-  const [selectedChoice, setSelectedChoice] = useState(null);
-  const [hasVoted, setHasVoted] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
+/* eslint-disable prettier/prettier */
+import React, {useState, useEffect} from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Image,
+  Alert,
+} from 'react-native';
+import {theme} from '../../../../assets';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import auth from '@react-native-firebase/auth';
+import database from '@react-native-firebase/database';
+import storage from '@react-native-firebase/storage';
+import {Gap} from '../../../../components';
 
-  const handleChoicePress = choice => {
-    if (!hasVoted) {
-      setSelectedChoice(choice.id);
-      setHasVoted(true);
-      setChoices(prevChoices =>
-        prevChoices.map(c =>
-          c.id === choice.id ? {...c, votes: c.votes + 1} : c,
-        ),
-      );
+const POLL_STORAGE_KEY = '@polling_result';
+
+const CardPoling = () => {
+  const [pollData, setPollData] = useState({
+    totalVotes: 0,
+    options: [],
+    hasVoted: false,
+    selectedOption: null,
+  });
+  const [userId, setUserId] = useState(null);
+
+  const fetchImageURL = async imageName => {
+    try {
+      const path = `images/polling/${imageName}`;
+      console.log(`Fetching image from path: ${path}`);
+      const url = await storage().ref(path).getDownloadURL();
+      console.log(`Successfully fetched image URL for: ${imageName}`);
+      return url;
+    } catch (error) {
+      console.error(`Error fetching image URL for ${imageName}:`, error);
+      return null;
     }
   };
-  const handleCancelVote = () => {
-    setSelectedChoice(null);
-    setHasVoted(false);
-    setChoices(initialChoices);
-    setRefreshKey(prevKey => prevKey + 1);
+
+  useEffect(() => {
+    const loadCandidates = async () => {
+      try {
+        const currentUser = auth().currentUser;
+        if (currentUser) {
+          setUserId(currentUser.uid);
+        }
+
+        // Mendapatkan data polling kandidat secara realtime
+        const candidateRef = database().ref('polling/candidates');
+        candidateRef.on('value', async snapshot => {
+          const candidates = snapshot.val();
+
+          const options = await Promise.all(
+            Object.keys(candidates).map(async candidate => {
+              const imageName =
+                candidates[candidate].imageName || `${candidate}.png`;
+              const imageUrl = await fetchImageURL(imageName);
+
+              return {
+                text: candidate,
+                votes: candidates[candidate].votes,
+                image: imageUrl,
+              };
+            }),
+          );
+
+          const totalVotes = options.reduce(
+            (sum, option) => sum + option.votes,
+            0,
+          );
+
+          setPollData(prevState => ({
+            ...prevState,
+            options,
+            totalVotes,
+          }));
+        });
+
+        // Mengecek data vote pengguna secara realtime
+        const userVoteRef = database().ref(`polling/users/${currentUser.uid}`);
+        userVoteRef.on('value', snapshot => {
+          if (snapshot.exists()) {
+            const userVoteData = snapshot.val();
+            const selectedOption = pollData.options.findIndex(
+              option => option.text === userVoteData.selectedCandidate,
+            );
+
+            setPollData(prevState => ({
+              ...prevState,
+              hasVoted: true,
+              selectedOption,
+            }));
+          }
+        });
+      } catch (error) {
+        console.error('Error loading candidates or user data:', error);
+      }
+    };
+
+    loadCandidates();
+  }, []);
+
+  const handleVote = async index => {
+    if (!pollData.hasVoted && userId) {
+      // Mengecek apakah pengguna sudah memilih sebelumnya sebelum melakukan vote
+      const userVoteSnapshot = await database()
+        .ref(`polling/users/${userId}`)
+        .once('value');
+
+      if (!userVoteSnapshot.exists()) {
+        const newOptions = [...pollData.options];
+        newOptions[index].votes += 1;
+
+        await database()
+          .ref(`polling/candidates/${newOptions[index].text}/votes`)
+          .set(newOptions[index].votes);
+        await database().ref(`polling/users/${userId}`).set({
+          selectedCandidate: newOptions[index].text,
+        });
+        setPollData({
+          ...pollData,
+          options: newOptions,
+          totalVotes: pollData.totalVotes + 1,
+          hasVoted: true,
+          selectedOption: index,
+        });
+      } else {
+        Alert.alert('Anda sudah memberikan suara sebelumnya.');
+      }
+    }
+  };
+
+  const handleChangeVote = () => {
+    Alert.alert(
+      'Ganti Pilihan',
+      'Apakah Anda yakin ingin mengganti pilihan? Ini akan menghapus hasil polling Anda.',
+      [
+        {text: 'Batal', style: 'cancel'},
+        {
+          text: 'Ya',
+          onPress: async () => {
+            const newOptions = [...pollData.options];
+            const prevSelectedOption = pollData.selectedOption;
+
+            if (prevSelectedOption !== null) {
+              newOptions[prevSelectedOption].votes -= 1;
+
+              const previousCandidate = newOptions[prevSelectedOption].text;
+
+              await database()
+                .ref(`polling/candidates/${previousCandidate}/votes`)
+                .set(newOptions[prevSelectedOption].votes);
+
+              await database().ref(`polling/users/${userId}`).remove();
+            }
+
+            setPollData({
+              ...pollData,
+              options: newOptions,
+              hasVoted: false,
+              selectedOption: null,
+              totalVotes: pollData.totalVotes - 1,
+            });
+
+            await AsyncStorage.removeItem(POLL_STORAGE_KEY);
+          },
+        },
+      ],
+    );
+  };
+
+  const calculatePercentage = votes => {
+    if (pollData.totalVotes === 0) {
+      return 0;
+    }
+    const percentage = (votes / pollData.totalVotes) * 100;
+    return percentage >= 100 ? 98 : percentage;
   };
 
   return (
-    <Card
-      key={refreshKey}
-      containerStyle={{
-        borderRadius: 10,
-        backgroundColor: '#ffff',
-      }}>
-      <Card.Title style={styles.cardTitle}>
-        Poling Calon Gubernur {'\n'}Sulawesi Utara 2024-2029
-      </Card.Title>
-      <RNPoll
-        totalVotes={choices.reduce((total, choice) => total + choice.votes, 0)}
-        choices={choices}
-        choiceTextStyle={styles.choiceTextStyle}
-        fillBackgroundColor="rgba(108, 184, 249, 1)"
-        onChoicePress={handleChoicePress}
-        borderColor="#56A4EB"
-        pollContainerStyle={styles.pollContainer}
-        selectedChoiceId={selectedChoice}
-        style={styles.poll}
-      />
-      {hasVoted && (
+    <View style={styles.cardContainer}>
+      <Gap height={8} />
+      <Text style={styles.title}>
+        Poling Calon Gubernur Sulawesi Utara 2024-2029
+      </Text>
+      <Gap height={16} />
+      {pollData.options.map((option, index) => (
+        <TouchableOpacity
+          key={index}
+          onPress={() => handleVote(index)}
+          disabled={pollData.hasVoted}
+          style={[
+            styles.optionContainer,
+            pollData.selectedOption === index && pollData.hasVoted
+              ? styles.selectedOptionContainer
+              : null,
+          ]}>
+          <View style={styles.optionContent}>
+            <View style={styles.imageWrapper}>
+              <Image
+                source={{uri: option.image}}
+                style={styles.candidateImage}
+              />
+            </View>
+            <Text style={styles.optionText}>{option.text}</Text>
+            {pollData.hasVoted && (
+              <Text style={styles.percentageText}>
+                {`${calculatePercentage(option.votes).toFixed(0.1)}%`}
+              </Text>
+            )}
+          </View>
+          {pollData.hasVoted && (
+            <View
+              style={[
+                styles.resultBar,
+                {width: `${calculatePercentage(option.votes)}%`},
+              ]}
+            />
+          )}
+        </TouchableOpacity>
+      ))}
+      {pollData.hasVoted && (
         <View style={styles.buttonContainer}>
           <TouchableOpacity
-            onPress={handleCancelVote}
-            style={styles.cancelButton}>
-            <Text style={styles.cancelButtonText}>Ganti Pilihan</Text>
+            onPress={handleChangeVote}
+            style={styles.changeButton}>
+            <Text style={styles.changeButtonText}>Ganti Pilihan</Text>
           </TouchableOpacity>
+          <Gap height={24} />
         </View>
       )}
-    </Card>
+      <Gap height={8} />
+    </View>
   );
 };
 
 export default CardPoling;
 
 const styles = StyleSheet.create({
-  cardTitle: {
-    color: '#6496c2',
-    fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'left',
+  cardContainer: {
+    borderRadius: 16,
+    borderColor: '#C1D8DD',
+    borderWidth: 1,
+    backgroundColor: '#003CB0',
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+    marginHorizontal: 27,
+    paddingVertical: 8,
+    paddingHorizontal: 24,
+    overflow: 'hidden',
   },
-  choiceTextStyle: {
-    color: '#373737',
+  title: {
+    fontSize: 22,
+    fontWeight: '500',
+    color: '#ffff',
+    fontFamily: theme.fonts.inter.semiBold,
   },
-  pollContainer: {
+  optionContainer: {
+    marginVertical: 4,
+    backgroundColor: '#c1ddf7',
     borderRadius: 10,
-    padding: 5,
-    marginTop: -15,
+    overflow: 'hidden',
+    height: 60,
   },
-  poll: {
-    borderRadius: 10,
+  selectedOptionContainer: {
+    borderColor: '#fff',
+    borderWidth: 2,
+  },
+  optionContent: {
     padding: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 2,
+    height: '115%',
   },
-  buttonContainer: {
-    marginTop: 5,
+  imageWrapper: {
+    position: 'absolute',
+    left: 10,
+  },
+  candidateImage: {
+    width: 148,
+    height: 84,
+  },
+  optionText: {
+    fontSize: 14,
+    color: '#5088bb',
+    marginLeft: '60%',
+    flex: 1,
+    fontFamily: theme.fonts.inter.semiBold,
+  },
+  resultBar: {
+    position: 'absolute',
+    top: 3,
+    bottom: 3,
+    left: 3,
+    backgroundColor: 'rgba(0, 61, 176, 0.5)',
+    zIndex: 2,
+    borderRadius: 8,
+    borderColor: '#fff',
+    borderWidth: 1,
+  },
+  percentageText: {
+    fontSize: 14,
+    color: '#5087BB',
+    fontWeight: 'bold',
+    fontFamily: theme.fonts.inter.semiBold,
+  },
+  changeButton: {
+    marginTop: 15,
+    backgroundColor: '#92CBFF',
+    paddingVertical: '3%',
+    paddingHorizontal: '15%',
+    borderRadius: 10,
     alignItems: 'center',
   },
-  cancelButton: {
-    backgroundColor: '#054783',
-    paddingVertical: 12,
-    paddingHorizontal: 115,
-    borderRadius: 8,
-  },
-  cancelButtonText: {
-    color: '#ffffff',
-    fontWeight: 'bold',
+  changeButtonText: {
+    color: '#344ab9',
+    fontWeight: '500',
     fontSize: 16,
+    fontFamily: theme.fonts.inter.semiBold,
   },
 });
