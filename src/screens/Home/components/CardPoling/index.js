@@ -46,54 +46,51 @@ const CardPoling = () => {
         if (currentUser) {
           setUserId(currentUser.uid);
         }
+        const snapshot = await database()
+          .ref('polling/candidates')
+          .once('value');
+        const candidates = snapshot.val();
 
-        // Mendapatkan data polling kandidat secara realtime
-        const candidateRef = database().ref('polling/candidates');
-        candidateRef.on('value', async snapshot => {
-          const candidates = snapshot.val();
+        const options = await Promise.all(
+          Object.keys(candidates).map(async candidate => {
+            const imageName =
+              candidates[candidate].imageName || `${candidate}.png`;
+            const imageUrl = await fetchImageURL(imageName);
 
-          const options = await Promise.all(
-            Object.keys(candidates).map(async candidate => {
-              const imageName =
-                candidates[candidate].imageName || `${candidate}.png`;
-              const imageUrl = await fetchImageURL(imageName);
+            return {
+              text: candidate,
+              votes: candidates[candidate].votes,
+              image: imageUrl,
+            };
+          }),
+        );
 
-              return {
-                text: candidate,
-                votes: candidates[candidate].votes,
-                image: imageUrl,
-              };
-            }),
-          );
+        const totalVotes = options.reduce(
+          (sum, option) => sum + option.votes,
+          0,
+        );
 
-          const totalVotes = options.reduce(
-            (sum, option) => sum + option.votes,
-            0,
+        setPollData(prevState => ({
+          ...prevState,
+          options,
+          totalVotes,
+        }));
+
+        const userVoteSnapshot = await database()
+          .ref(`polling/users/${currentUser.uid}`)
+          .once('value');
+        if (userVoteSnapshot.exists()) {
+          const userVoteData = userVoteSnapshot.val();
+          const selectedOption = options.findIndex(
+            option => option.text === userVoteData.selectedCandidate,
           );
 
           setPollData(prevState => ({
             ...prevState,
-            options,
-            totalVotes,
+            hasVoted: true,
+            selectedOption,
           }));
-        });
-
-        // Mengecek data vote pengguna secara realtime
-        const userVoteRef = database().ref(`polling/users/${currentUser.uid}`);
-        userVoteRef.on('value', snapshot => {
-          if (snapshot.exists()) {
-            const userVoteData = snapshot.val();
-            const selectedOption = pollData.options.findIndex(
-              option => option.text === userVoteData.selectedCandidate,
-            );
-
-            setPollData(prevState => ({
-              ...prevState,
-              hasVoted: true,
-              selectedOption,
-            }));
-          }
-        });
+        }
       } catch (error) {
         console.error('Error loading candidates or user data:', error);
       }
@@ -104,34 +101,24 @@ const CardPoling = () => {
 
   const handleVote = async index => {
     if (!pollData.hasVoted && userId) {
-      // Mengecek apakah pengguna sudah memilih sebelumnya sebelum melakukan vote
-      const userVoteSnapshot = await database()
-        .ref(`polling/users/${userId}`)
-        .once('value');
+      const newOptions = [...pollData.options];
+      newOptions[index].votes += 1;
 
-      if (!userVoteSnapshot.exists()) {
-        const newOptions = [...pollData.options];
-        newOptions[index].votes += 1;
-
-        await database()
-          .ref(`polling/candidates/${newOptions[index].text}/votes`)
-          .set(newOptions[index].votes);
-        await database().ref(`polling/users/${userId}`).set({
-          selectedCandidate: newOptions[index].text,
-        });
-        setPollData({
-          ...pollData,
-          options: newOptions,
-          totalVotes: pollData.totalVotes + 1,
-          hasVoted: true,
-          selectedOption: index,
-        });
-      } else {
-        Alert.alert('Anda sudah memberikan suara sebelumnya.');
-      }
+      await database()
+        .ref(`polling/candidates/${newOptions[index].text}/votes`)
+        .set(newOptions[index].votes);
+      await database().ref(`polling/users/${userId}`).set({
+        selectedCandidate: newOptions[index].text,
+      });
+      setPollData({
+        ...pollData,
+        options: newOptions,
+        totalVotes: pollData.totalVotes + 1,
+        hasVoted: true,
+        selectedOption: index,
+      });
     }
   };
-
   const handleChangeVote = () => {
     Alert.alert(
       'Ganti Pilihan',
@@ -170,7 +157,6 @@ const CardPoling = () => {
       ],
     );
   };
-
   const calculatePercentage = votes => {
     if (pollData.totalVotes === 0) {
       return 0;
