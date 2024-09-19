@@ -217,6 +217,9 @@ const CardPoling = () => {
           <Gap height={24} />
         </View>
       )}
+      <TouchableOpacity style={styles.refreshButton}>
+        <Text style={styles.refreshButtonText}>Refresh</Text>
+      </TouchableOpacity>
       <Gap height={8} />
     </View>
   );
@@ -310,5 +313,17 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     fontSize: 16,
     fontFamily: theme.fonts.inter.semiBold,
+  },
+  refreshButton: {
+    backgroundColor: '#92CBFF',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 5,
+  },
+  refreshButtonText: {
+    color: '#344ab9',
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
 });
