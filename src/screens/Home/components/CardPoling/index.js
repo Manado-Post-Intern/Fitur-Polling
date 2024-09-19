@@ -25,7 +25,12 @@ const CardPoling = () => {
     selectedOption: null,
   });
   const [userId, setUserId] = useState(null);
-
+  const [title, setTitle] = useState('');
+  const titleRef = database().ref('polling/title');
+  titleRef.on('value', snapshot => {
+    const fetchedTitle = snapshot.val();
+    setTitle(fetchedTitle);
+  });
   const fetchImageURL = async imageName => {
     try {
       const path = `images/polling/${imageName}`;
@@ -104,7 +109,6 @@ const CardPoling = () => {
 
   const handleVote = async index => {
     if (!pollData.hasVoted && userId) {
-      // Mengecek apakah pengguna sudah memilih sebelumnya sebelum melakukan vote
       const userVoteSnapshot = await database()
         .ref(`polling/users/${userId}`)
         .once('value');
@@ -182,9 +186,7 @@ const CardPoling = () => {
   return (
     <View style={styles.cardContainer}>
       <Gap height={8} />
-      <Text style={styles.title}>
-        Poling Calon Gubernur Sulawesi Utara 2024-2029
-      </Text>
+      <Text style={styles.title}>{title}</Text>
       <Gap height={16} />
       {pollData.options.map((option, index) => (
         <TouchableOpacity
@@ -259,6 +261,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#ffff',
     fontFamily: theme.fonts.inter.semiBold,
+    textAlign: 'left',
   },
   optionContainer: {
     marginVertical: 4,
@@ -284,8 +287,8 @@ const styles = StyleSheet.create({
     left: 10,
   },
   candidateImage: {
-    width: 148,
-    height: 84,
+    width: 86,
+    height: 70,
   },
   optionText: {
     fontSize: 14,
