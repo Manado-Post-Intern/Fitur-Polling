@@ -23,9 +23,9 @@ const CardPoling = () => {
     options: [],
     hasVoted: false,
     selectedOption: null,
+    title: '',
   });
   const [userId, setUserId] = useState(null);
-  const [pollTitle, setPollTitle] = useState(''); // State for the dynamic title
 
   const fetchImageURL = async imageName => {
     try {
@@ -40,70 +40,92 @@ const CardPoling = () => {
     }
   };
 
-  const loadCandidates = async () => {
-    try {
-      const currentUser = auth().currentUser;
-      if (currentUser) {
-        setUserId(currentUser.uid);
+  useEffect(() => {
+    const loadPollingData = async () => {
+      try {
+        // Fetch polling title dynamically
+        const pollingTitleSnapshot = await database()
+          .ref('polling/title')
+          .once('value');
+        const title = pollingTitleSnapshot.val();
+
+        setPollData(prevState => ({
+          ...prevState,
+          title: title,
+        }));
+      } catch (error) {
+        console.error('Error loading polling title:', error);
       }
+    };
 
-      // Fetch poll title
-      const titleSnapshot = await database().ref('polling/title').once('value');
-      if (titleSnapshot.exists()) {
-        setPollTitle(titleSnapshot.val());
-      }
+    loadPollingData();
+  }, []);
 
-      const snapshot = await database()
-        .ref('polling/candidates')
-        .once('value');
-      const candidates = snapshot.val();
+  useEffect(() => {
+    const loadCandidates = async () => {
+      try {
+        const currentUser = auth().currentUser;
+        if (currentUser) {
+          setUserId(currentUser.uid);
+        }
 
-      const options = await Promise.all(
-        Object.keys(candidates).map(async candidate => {
-          const imageName =
-            candidates[candidate].imageName || `${candidate}.png`;
-          const imageUrl = await fetchImageURL(imageName);
+        const snapshot = await database()
+          .ref('polling/candidates')
+          .once('value');
+        const candidates = snapshot.val();
 
-          return {
-            text: candidate,
-            votes: candidates[candidate].votes,
-            image: imageUrl,
-          };
-        }),
-      );
+        let options = await Promise.all(
+          Object.keys(candidates).map(async candidate => {
+            const imageName =
+              candidates[candidate].imageName || `${candidate}.png`;
+            const imageUrl = await fetchImageURL(imageName);
 
-      const totalVotes = options.reduce(
-        (sum, option) => sum + option.votes,
-        0,
-      );
+            return {
+              text: candidate,
+              votes: candidates[candidate].votes,
+              image: imageUrl,
+            };
+          }),
+        );
 
-      setPollData(prevState => ({
-        ...prevState,
-        options,
-        totalVotes,
-      }));
+        // Memindahkan kandidat "Lainnya" ke bagian terakhir
+        options = options.sort((a, b) => {
+          if (a.text === 'Lainnya') return 1;
+          if (b.text === 'Lainnya') return -1;
+          return 0;
+        });
 
-      const userVoteSnapshot = await database()
-        .ref(`polling/users/${currentUser.uid}`)
-        .once('value');
-      if (userVoteSnapshot.exists()) {
-        const userVoteData = userVoteSnapshot.val();
-        const selectedOption = options.findIndex(
-          option => option.text === userVoteData.selectedCandidate,
+        const totalVotes = options.reduce(
+          (sum, option) => sum + option.votes,
+          0,
         );
 
         setPollData(prevState => ({
           ...prevState,
-          hasVoted: true,
-          selectedOption,
+          options,
+          totalVotes,
         }));
-      }
-    } catch (error) {
-      console.error('Error loading candidates or user data:', error);
-    }
-  };
 
-  useEffect(() => {
+        const userVoteSnapshot = await database()
+          .ref(`polling/users/${currentUser.uid}`)
+          .once('value');
+        if (userVoteSnapshot.exists()) {
+          const userVoteData = userVoteSnapshot.val();
+          const selectedOption = options.findIndex(
+            option => option.text === userVoteData.selectedCandidate,
+          );
+
+          setPollData(prevState => ({
+            ...prevState,
+            hasVoted: true,
+            selectedOption,
+          }));
+        }
+      } catch (error) {
+        console.error('Error loading candidates or user data:', error);
+      }
+    };
+
     loadCandidates();
   }, []);
 
@@ -127,7 +149,6 @@ const CardPoling = () => {
       });
     }
   };
-
   const handleChangeVote = () => {
     Alert.alert(
       'Ganti Pilihan',
@@ -166,7 +187,6 @@ const CardPoling = () => {
       ],
     );
   };
-
   const calculatePercentage = votes => {
     if (pollData.totalVotes === 0) {
       return 0;
@@ -175,17 +195,49 @@ const CardPoling = () => {
     return percentage >= 100 ? 98 : percentage;
   };
 
-  // Refresh button handler
-  const handleRefresh = () => {
-    // loadCandidates();
-    calculatePercentage();
+  const handleRefresh = async () => {
+    try {
+      const snapshot = await database().ref('polling/candidates').once('value');
+      const candidates = snapshot.val();
+
+      let options = await Promise.all(
+        Object.keys(candidates).map(async candidate => {
+          const imageName =
+            candidates[candidate].imageName || `${candidate}.png`;
+          const imageUrl = await fetchImageURL(imageName);
+
+          return {
+            text: candidate,
+            votes: candidates[candidate].votes,
+            image: imageUrl,
+          };
+        }),
+      );
+
+      // Memindahkan kandidat "Lainnya" ke bagian terakhir
+      options = options.sort((a, b) => {
+        if (a.text === 'Lainnya') return 1;
+        if (b.text === 'Lainnya') return -1;
+        return 0;
+      });
+
+      const totalVotes = options.reduce((sum, option) => sum + option.votes, 0);
+
+      setPollData(prevState => ({
+        ...prevState,
+        options,
+        totalVotes,
+      }));
+    } catch (error) {
+      console.error('Error refreshing candidates:', error);
+    }
   };
 
   return (
     <View style={styles.cardContainer}>
       <Gap height={8} />
       <Text style={styles.title}>
-        {pollTitle} {/* Dynamic poll title */}
+        {pollData.title}
       </Text>
       <Gap height={16} />
       {pollData.options.map((option, index) => (
@@ -209,7 +261,7 @@ const CardPoling = () => {
             <Text style={styles.optionText}>{option.text}</Text>
             {pollData.hasVoted && (
               <Text style={styles.percentageText}>
-                {`${calculatePercentage(option.votes).toFixed(1)}%`}
+                {`${calculatePercentage(option.votes).toFixed(0.1)}%`}
               </Text>
             )}
           </View>
@@ -233,7 +285,9 @@ const CardPoling = () => {
           <Gap height={24} />
         </View>
       )}
-      <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
+      <TouchableOpacity
+        style={styles.refreshButton}
+        onPress={handleRefresh}>
         <Text style={styles.refreshButtonText}>Refresh</Text>
       </TouchableOpacity>
       <Gap height={8} />
