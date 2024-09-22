@@ -68,8 +68,11 @@ import IcBigCheckmark from './ic-big-checkmark.svg';
 import IcFilter from './ic-filter.svg';
 import IcPinpoint from './ic-pinpoint.svg';
 import IcWhatsappExtraSmall from './ic-whatsapp-extra-small.svg';
-
+import IcGanti from './ic-ganti.svg';
+import Icrefreshpoll from './ic-refresh-poll.svg';
 export {
+  Icrefreshpoll,
+  IcGanti,
   IcClosedEye,
   IcOpenedEye,
   IcFacebook,

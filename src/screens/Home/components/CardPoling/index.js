@@ -8,7 +8,7 @@ import {
   Image,
   Alert,
 } from 'react-native';
-import {theme} from '../../../../assets';
+import {IcGanti, Icrefreshpoll, theme} from '../../../../assets';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import auth from '@react-native-firebase/auth';
 import database from '@react-native-firebase/database';
@@ -90,8 +90,12 @@ const CardPoling = () => {
 
         // Memindahkan kandidat "Lainnya" ke bagian terakhir
         options = options.sort((a, b) => {
-          if (a.text === 'Lainnya') return 1;
-          if (b.text === 'Lainnya') return -1;
+          if (a.text === 'Lainnya') {
+            return 1;
+          }
+          if (b.text === 'Lainnya') {
+            return -1;
+          }
           return 0;
         });
 
@@ -216,8 +220,12 @@ const CardPoling = () => {
 
       // Memindahkan kandidat "Lainnya" ke bagian terakhir
       options = options.sort((a, b) => {
-        if (a.text === 'Lainnya') return 1;
-        if (b.text === 'Lainnya') return -1;
+        if (a.text === 'Lainnya') {
+          return 1;
+        }
+        if (b.text === 'Lainnya') {
+          return -1;
+        }
         return 0;
       });
 
@@ -236,9 +244,7 @@ const CardPoling = () => {
   return (
     <View style={styles.cardContainer}>
       <Gap height={8} />
-      <Text style={styles.title}>
-        {pollData.title}
-      </Text>
+      <Text style={styles.title}>{pollData.title}</Text>
       <Gap height={16} />
       {pollData.options.map((option, index) => (
         <TouchableOpacity
@@ -280,16 +286,18 @@ const CardPoling = () => {
           <TouchableOpacity
             onPress={handleChangeVote}
             style={styles.changeButton}>
+            <IcGanti />
             <Text style={styles.changeButtonText}>Ganti Pilihan</Text>
           </TouchableOpacity>
-          <Gap height={24} />
+
+          <TouchableOpacity
+            style={styles.refreshbutton}
+            onPress={handleRefresh}>
+            <Icrefreshpoll />
+          </TouchableOpacity>
         </View>
       )}
-      <TouchableOpacity
-        style={styles.refreshButton}
-        onPress={handleRefresh}>
-        <Text style={styles.refreshButtonText}>Refresh</Text>
-      </TouchableOpacity>
+
       <Gap height={8} />
     </View>
   );
@@ -338,13 +346,22 @@ const styles = StyleSheet.create({
     zIndex: 2,
     height: '115%',
   },
+  buttonContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    // paddingHorizontal: '5%',
+  },
+  refreshbutton: {
+    paddingHorizontal: '5%',
+    paddingTop: '8%',
+  },
   imageWrapper: {
     position: 'absolute',
     left: 10,
   },
   candidateImage: {
-    width: 148,
-    height: 84,
+    width: 90,
+    height: 100,
   },
   optionText: {
     fontSize: 14,
@@ -359,7 +376,7 @@ const styles = StyleSheet.create({
     bottom: 3,
     left: 3,
     backgroundColor: 'rgba(0, 61, 176, 0.5)',
-    zIndex: 2,
+    zIndex: 1,
     borderRadius: 8,
     borderColor: '#fff',
     borderWidth: 1,
@@ -373,27 +390,19 @@ const styles = StyleSheet.create({
   changeButton: {
     marginTop: 15,
     backgroundColor: '#92CBFF',
-    paddingVertical: '3%',
-    paddingHorizontal: '15%',
-    borderRadius: 10,
+    paddingVertical: '2%',
+    paddingHorizontal: '22%',
+    borderRadius: 8,
     alignItems: 'center',
+    flexDirection: 'row',
+    alignContent: 'center',
+    justifyContent: 'center',
   },
   changeButtonText: {
+    paddingHorizontal: '5%',
     color: '#344ab9',
     fontWeight: '500',
     fontSize: 16,
     fontFamily: theme.fonts.inter.semiBold,
-  },
-  refreshButton: {
-    backgroundColor: '#92CBFF',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 5,
-  },
-  refreshButtonText: {
-    color: '#344ab9',
-    fontSize: 16,
-    fontWeight: 'bold',
-    textAlign: 'center',
   },
 });
